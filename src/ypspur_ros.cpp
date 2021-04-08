@@ -27,21 +27,24 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <ros/ros.h>
+#TODO "" or <>
 
-#include <diagnostic_msgs/DiagnosticArray.h>
-#include <geometry_msgs/Twist.h>
-#include <geometry_msgs/WrenchStamped.h>
-#include <nav_msgs/Odometry.h>
-#include <sensor_msgs/JointState.h>
-#include <std_msgs/Bool.h>
-#include <std_msgs/Float32.h>
-#include <std_msgs/Float32MultiArray.h>
+#include <rclcpp/rclcpp.hpp>
+
+#include <diagnostic_msgs/DiagnosticArray.hpp>
+#include <geometry_msgs/Twist.hpp>
+#include <geometry_msgs/WrenchStamped.hpp>
+#include <nav_msgs/Odometry.hpp>
+#include <sensor_msgs/JointState.hpp>
+#include <std_msgs/msg/Float32.hpp>
+#include <std_msgs/msg/Float32MultiArray.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <trajectory_msgs/JointTrajectory.h>
-#include <ypspur_ros/ControlMode.h>
-#include <ypspur_ros/DigitalInput.h>
-#include <ypspur_ros/DigitalOutput.h>
-#include <ypspur_ros/JointPositionControl.h>
+#TODO convert.h to.hpp
+#include <ypspur_ros/ControlMode.hpp>
+#include <ypspur_ros/DigitalInput.hpp>
+#include <ypspur_ros/DigitalOutput.hpp>
+#include <ypspur_ros/JointPositionControl.hpp>
 
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -78,13 +81,12 @@ void sigintHandler(int sig)
   g_shutdown = true;
 }
 
-class YpspurRosNode
+class YpspurRosNode : public rclcpp::Node
 {
 private:
-  ros::NodeHandle nh_;
-  ros::NodeHandle pnh_;
-  std::map<std::string, ros::Publisher> pubs_;
-  std::map<std::string, ros::Subscriber> subs_;
+  rclcpp::clock ros_clock(RCL_ROS_TIME);
+  rclcpp::Publisher < std::map<std::string>::SharedPtr pub_;
+  rclcpp::Subscription < std::map<std::string>::SharedPtr sub_steer_;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
   tf2_ros::TransformBroadcaster tf_broadcaster_;
@@ -157,15 +159,15 @@ private:
   unsigned int dio_output_default_;
   unsigned int dio_dir_default_;
   const int dio_num_ = 8;
-  std::map<int, ros::Time> dio_revert_;
+  std::map<int, rclcpp::Time> dio_revert_;
 
   int device_error_state_;
   int device_error_state_prev_;
-  ros::Time device_error_state_time_;
+  rclcpp::Time device_error_state_time_;
 
   geometry_msgs::Twist::ConstPtr cmd_vel_;
-  ros::Time cmd_vel_time_;
-  ros::Duration cmd_vel_expire_;
+  rclcpp::Time cmd_vel_time_;
+  rclcpp::Duration cmd_vel_expire_;
 
   int control_mode_;
 
@@ -187,7 +189,7 @@ private:
   void cbCmdVel(const geometry_msgs::Twist::ConstPtr& msg)
   {
     cmd_vel_ = msg;
-    cmd_vel_time_ = ros::Time::now();
+    cmd_vel_time_ = clock->now();
     if (control_mode_ == ypspur_ros::ControlMode::VELOCITY)
     {
       YP::YPSpur_vel(msg->linear.x, msg->angular.z);
@@ -195,10 +197,10 @@ private:
   }
   void cbJoint(const trajectory_msgs::JointTrajectory::ConstPtr& msg)
   {
-    const ros::Time now = ros::Time::now();
+    const rclcpp::Time now = clock->now();
 
     std_msgs::Header header = msg->header;
-    if (header.stamp == ros::Time(0))
+    if (header.stamp == rclcpp::Time(0))
       header.stamp = now;
 
     std::map<std::string, trajectory_msgs::JointTrajectory> new_cmd_joints;
@@ -215,7 +217,8 @@ private:
       {
         if (header.stamp + cmd.time_from_start < now)
         {
-          ROS_ERROR(
+          RCLCPP_ERROR(
+              this->get_logger(),
               "Ignored outdated JointTrajectory command "
               "(joint: %s, now: %0.6lf, stamp: %0.6lf, time_from_start: %0.6lf)",
               name.c_str(), now.toSec(), header.stamp.toSec(), cmd.time_from_start.toSec());
@@ -281,7 +284,7 @@ private:
     {
       if (joint_name_to_num_.find(name) == joint_name_to_num_.end())
       {
-        ROS_ERROR("Unknown joint name '%s'", name.c_str());
+        RCLCPP_ERROR(this->get_logger(), "Unknown joint name '%s'", name.c_str());
         continue;
       }
       int num = joint_name_to_num_[name];
@@ -323,7 +326,7 @@ private:
         dio_dir_ &= ~mask;
         break;
       case ypspur_ros::DigitalOutput::PULL_DOWN:
-        ROS_ERROR("Digital IO pull down is not supported on this system");
+        RCLCPP_ERROR(this->get_logger(), "Digital IO pull down is not supported on this system");
         break;
     }
     if (dio_output_ != dio_output_prev)
@@ -331,9 +334,9 @@ private:
     if (dio_dir_ != dio_dir_prev)
       YP::YP_set_io_dir(dio_dir_);
 
-    if (msg->toggle_time > ros::Duration(0))
+    if (msg->toggle_time > rclcpp::Duration(0))
     {
-      dio_revert_[id_] = ros::Time::now() + msg->toggle_time;
+      dio_revert_[id_] = clock->now() + msg->toggle_time;
     }
   }
   void revertDigitalOutput(int id_)
@@ -352,9 +355,9 @@ private:
     if (dio_dir_ != dio_dir_prev)
       YP::YP_set_io_dir(dio_dir_);
 
-    dio_revert_[id_] = ros::Time(0);
+    dio_revert_[id_] = rclcpp::Time(0);
   }
-  void updateDiagnostics(const ros::Time& now, const bool connection_down = false)
+  void updateDiagnostics(const rclcpp::Time& now, const bool connection_down = false)
   {
     const int connection_error = connection_down ? 1 : YP::YP_get_error_state();
     double t = 0;
@@ -364,7 +367,7 @@ private:
       t = YP::YP_get_device_error_state(0, &err);
     device_error_state_ |= err;
 
-    if (device_error_state_time_ + ros::Duration(1.0) < now || connection_down ||
+    if (device_error_state_time_ + rclcpp::Duration(1.0) < now || connection_down ||
         device_error_state_ != device_error_state_prev_)
     {
       device_error_state_time_ = now;
@@ -385,7 +388,7 @@ private:
         }
         else
         {
-          if (ros::Time(t) < now - ros::Duration(1.0))
+          if (rclcpp::Time(t) < now - rclcpp::Duration(1.0))
           {
             msg.status[0].level = diagnostic_msgs::DiagnosticStatus::ERROR;
             msg.status[0].message = "Motor controller doesn't "
@@ -445,7 +448,7 @@ public:
 
     double cmd_vel_expire_s;
     pnh_.param("cmd_vel_expire", cmd_vel_expire_s, -1.0);
-    cmd_vel_expire_ = ros::Duration(cmd_vel_expire_s);
+    cmd_vel_expire_ = rclcpp::Duration(cmd_vel_expire_s);
 
     std::string ad_mask("");
     ads_.resize(ad_num_);
@@ -512,7 +515,7 @@ public:
         }
         else if (output_default.compare("PULL_DOWN") == 0)
         {
-          ROS_ERROR("Digital IO pull down is not supported on this system");
+          RCLCPP_ERROR(this->get_logger(), "Digital IO pull down is not supported on this system");
         }
         if (param.input_)
           digital_input_enable_ = true;
@@ -655,7 +658,7 @@ public:
         int msq = msgget(key_, 0666 | IPC_CREAT);
         msgctl(msq, IPC_RMID, nullptr);
 
-        ROS_WARN("launching ypspur-coordinator");
+        RCLCPP_WARN(this->get_logger(), "launching ypspur-coordinator");
         pid_ = fork();
         if (pid_ == -1)
         {
@@ -693,7 +696,8 @@ public:
           {
             throw(std::runtime_error("failed to init libypspur"));
           }
-          ros::WallDuration(1).sleep();
+          #TODO wall duration
+          rclcpp::Duration(1).sleep();
           if (YP::YPSpur_initex(key_) >= 0)
             break;
         }
@@ -707,26 +711,27 @@ public:
         done = true;
       };
       boost::thread spur_test = boost::thread(get_vel_thread);
-      ros::WallDuration(0.1).sleep();
+      #TODO wall duration
+      rclcpp::Duration(0.1).sleep();
       if (!done)
       {
         // There is no way to kill thread safely in C++11
         // So, just leave it detached.
         spur_test.detach();
-        ROS_WARN("ypspur-coordinator seems to be down - launching");
+        RCLCPP_WARN(this->get_logger(), "ypspur-coordinator seems to be down - launching");
         continue;
       }
       spur_test.join();
       if (ret < 0)
       {
-        ROS_WARN("ypspur-coordinator returns error - launching");
+        RCLCPP_WARN(this->get_logger(), "ypspur-coordinator returns error - launching");
         continue;
       }
-      ROS_WARN("ypspur-coordinator launched");
+      RCLCPP_WARN(this->get_logger(), "ypspur-coordinator launched");
       break;
     }
 
-    ROS_INFO("ypspur-coordinator conneceted");
+    RCLCPP_INFO(this->get_logger(), "ypspur-coordinator conneceted");
     signal(SIGINT, sigintHandler);
 
     YP::YP_get_parameter(YP::YP_PARAM_MAX_VEL, &params_["vel"]);
@@ -735,14 +740,16 @@ public:
     YP::YP_get_parameter(YP::YP_PARAM_MAX_ACC_W, &params_["angacc"]);
 
     if (!pnh_.hasParam("vel"))
-      ROS_WARN("default \"vel\" %0.3f used", (float)params_["vel"]);
+      _RCLCPP_WARN(this->get_logger(), "default \"vel\" %0.3f used", (float)params_["vel"]);
     if (!pnh_.hasParam("acc"))
-      ROS_WARN("default \"acc\" %0.3f used", (float)params_["acc"]);
+      RCLCPP_WARN(this->get_logger(), "default \"acc\" %0.3f used", (float)params_["acc"]);
     if (!pnh_.hasParam("angvel"))
-      ROS_WARN("default \"angvel\" %0.3f used", (float)params_["angvel"]);
+      RCLCPP_WARN(this->get_logger(), "default \"angvel\" %0.3f used", (float)params_["angvel"]);
     if (!pnh_.hasParam("angacc"))
-      ROS_WARN("default \"angacc\" %0.3f used", (float)params_["angacc"]);
+      RCLCPP_WARN(this->get_logger(), "default \"angacc\" %0.3f used", (float)params_["angacc"]);
 
+    #TODO pnh
+    #TODO param
     pnh_.param("vel", params_["vel"], params_["vel"]);
     pnh_.param("acc", params_["acc"], params_["acc"]);
     pnh_.param("angvel", params_["angvel"], params_["angvel"]);
@@ -761,11 +768,11 @@ public:
     // Kill ypspur-coordinator if the communication is still active.
     if (pid_ > 0 && YP::YP_get_error_state() == 0)
     {
-      ROS_INFO("killing ypspur-coordinator (%d)", (int)pid_);
+      RCLCPP_INFO(this->get_logger(), "killing ypspur-coordinator (%d)", (int)pid_);
       kill(pid_, SIGINT);
       int status;
       waitpid(pid_, &status, 0);
-      ROS_INFO("ypspur-coordinator is killed (status: %d)", status);
+      RCLCPP_INFO("ypspur-coordinator is killed (status: %d)", status);
     }
   }
   bool spin()
@@ -809,14 +816,14 @@ public:
       }
     }
 
-    ROS_INFO("ypspur_ros main loop started");
-    ros::Rate loop(params_["hz"]);
+    RCLPCPP_INFO(this->get_logger(), "ypspur_ros main loop started");
+    rclcpp::Rate loop(params_["hz"]);
     while (!g_shutdown)
     {
-      const auto now = ros::Time::now();
+      const auto now = clock->now();
       const float dt = 1.0 / params_["hz"];
 
-      if (cmd_vel_ && cmd_vel_expire_ > ros::Duration(0))
+      if (cmd_vel_ && cmd_vel_expire_ > rclcpp::Duration(0))
       {
         if (cmd_vel_time_ + cmd_vel_expire_ < now)
         {
@@ -841,7 +848,7 @@ public:
         }
         else
         {
-          t = ros::Time::now().toSec();
+          t = clock->now().toSec();
           if (cmd_vel_)
           {
             v = cmd_vel_->linear.x;
@@ -852,7 +859,7 @@ public:
           y = odom.pose.pose.position.y + dt * v * sinf(yaw);
         }
 
-        odom.header.stamp = ros::Time(t);
+        odom.header.stamp = rclcpp::Time(t);
         odom.pose.pose.position.x = x;
         odom.pose.pose.position.y = y;
         odom.pose.pose.position.z = 0;
@@ -862,7 +869,7 @@ public:
         odom.twist.twist.angular.z = w;
         pubs_["odom"].publish(odom);
 
-        odom_trans.header.stamp = ros::Time(t) + ros::Duration(tf_time_offset_);
+        odom_trans.header.stamp = rclcpp::Time(t) + rclcpp::Duration(tf_time_offset_);
         odom_trans.transform.translation.x = x;
         odom_trans.transform.translation.y = y;
         odom_trans.transform.translation.z = 0;
@@ -875,7 +882,7 @@ public:
           if (t <= 0.0)
             break;
         }
-        wrench.header.stamp = ros::Time(t);
+        wrench.header.stamp = rclcpp::Time(t);
         wrench.wrench.force.y = 0;
         wrench.wrench.force.z = 0;
         wrench.wrench.torque.x = 0;
@@ -889,7 +896,7 @@ public:
             tf2::Stamped<tf2::Transform> transform;
             geometry_msgs::TransformStamped transform_msg = tf_buffer_.lookupTransform(
                 frames_["origin"], frames_["base_link"],
-                ros::Time(0));
+                rclcpp::Time(0));
             tf2::fromMsg(transform_msg, transform);
 
             tf2Scalar yaw, pitch, roll;
@@ -900,7 +907,7 @@ public:
           }
           catch (tf2::TransformException& ex)
           {
-            ROS_ERROR("Failed to feedback localization result to YP-Spur (%s)", ex.what());
+            RCLCPP_ERROR(this->get_logger(), "Failed to feedback localization result to YP-Spur (%s)", ex.what());
           }
         }
       }
@@ -940,11 +947,11 @@ public:
           }
           if (t <= 0.0)
             break;
-          joint.header.stamp = ros::Time(t);
+          joint.header.stamp = rclcpp::Time(t);
         }
         else
         {
-          t = ros::Time::now().toSec();
+          t = rclcpp::Time::now().toSec();
           for (unsigned int i = 0; i < joints_.size(); i++)
           {
             auto vel_prev = joint.velocity[i];
@@ -1008,14 +1015,14 @@ public:
                 break;
             }
           }
-          joint.header.stamp = ros::Time(t);
+          joint.header.stamp = rclcpp::Time(t);
         }
         pubs_["joint"].publish(joint);
 
         for (unsigned int i = 0; i < joints_.size(); i++)
         {
           joint_trans[i].transform.rotation = tf2::toMsg(tf2::Quaternion(z_axis_, joint.position[i]));
-          joint_trans[i].header.stamp = ros::Time(t) + ros::Duration(tf_time_offset_);
+          joint_trans[i].header.stamp = rclcpp::Time(t) + rclcpp::Duration(tf_time_offset_);
           tf_broadcaster_.sendTransform(joint_trans[i]);
         }
 
@@ -1026,13 +1033,13 @@ public:
 
           auto& cmd_joint_ = joints_[jid].cmd_joint_;
           auto t = now - cmd_joint_.header.stamp;
-          if (t < ros::Duration(0))
+          if (t < rclcpp::Duration(0))
             continue;
 
           bool done = true;
           for (auto& cmd : cmd_joint_.points)
           {
-            if (cmd.time_from_start < ros::Duration(0))
+            if (cmd.time_from_start < rclcpp::Duration(0))
               continue;
             if (now > cmd_joint_.header.stamp + cmd.time_from_start)
               continue;
@@ -1048,7 +1055,7 @@ public:
             bool v_found = true;
             while (true)
             {
-              // ROS_INFO("st: %0.3f, en: %0.3f, err: %0.3f, t: %0.3f",
+              // RCLCPP_INFO(this->get_logger(), "st: %0.3f, en: %0.3f, err: %0.3f, t: %0.3f",
               //          vel_start, vel_end_, ang_err, t_left.toSec());
               int s;
               if (vel_end_ > vel_start)
@@ -1061,7 +1068,7 @@ public:
 
               double err_deacc;
               err_deacc = fabs(vel_end_ * vel_end_ - v * v) / (joints_[jid].accel_ * 2.0);
-              // ROS_INFO("v+-: %0.3f", v);
+              // RCLCPP_INFO(this->get_logger(), "v+-: %0.3f", v);
               v_min = fabs(v);
               if ((vel_start * s <= v * s || err_deacc >= fabs(ang_err)) &&
                   v * s <= vel_end_ * s)
@@ -1092,7 +1099,7 @@ public:
               if (vf(vel_start, vel_end_, joints_[jid].accel_, ang_err, t_left.toSec(),
                      1, 1, v))
               {
-                // ROS_INFO("v++: sol+ %0.3f", v);
+                // RCLCPP_INFO(this->get_logger(), "v++: sol+ %0.3f", v);
                 if (v >= vel_start && v >= vel_end_)
                 {
                   if (v_min > fabs(v))
@@ -1103,7 +1110,7 @@ public:
               if (vf(vel_start, vel_end_, joints_[jid].accel_, ang_err, t_left.toSec(),
                      -1, 1, v))
               {
-                // ROS_INFO("v--: sol+ %0.3f", v);
+                // RCLCPP_INFO(this->get_logger(), "v--: sol+ %0.3f", v);
                 if (v <= vel_start && v <= vel_end_)
                 {
                   if (v_min > fabs(v))
@@ -1114,7 +1121,7 @@ public:
               if (vf(vel_start, vel_end_, joints_[jid].accel_, ang_err, t_left.toSec(),
                      1, -1, v))
               {
-                // ROS_INFO("v++: sol- %0.3f", v);
+                // RCLCPP_INFO(this->get_logger(), "v++: sol- %0.3f", v);
                 if (v >= vel_start && v >= vel_end_)
                 {
                   if (v_min > fabs(v))
@@ -1125,7 +1132,7 @@ public:
               if (vf(vel_start, vel_end_, joints_[jid].accel_, ang_err, t_left.toSec(),
                      -1, -1, v))
               {
-                // ROS_INFO("v--: sol- %0.3f", v);
+                // RCLCPP_INFO(this->get_logger(), "v--: sol- %0.3f", v);
                 if (v <= vel_start && v <= vel_end_)
                 {
                   if (v_min > fabs(v))
@@ -1137,7 +1144,7 @@ public:
             }
             if (v_found)
             {
-              // ROS_INFO("v: %0.3f", v_min);
+              // RCLCPP_INFO(this->get_logger(), "v: %0.3f", v_min);
               joints_[jid].angle_ref_ = cmd.positions[0];
               joints_[jid].vel_end_ = vel_end_;
               joints_[jid].vel_ = v_min;
@@ -1148,7 +1155,7 @@ public:
             }
             else
             {
-              ROS_ERROR("Impossible trajectory given");
+              RCLCPP_ERROR(this->get_logger(), "Impossible trajectory given");
             }
             break;
           }
@@ -1183,7 +1190,7 @@ public:
       {
         ypspur_ros::DigitalInput din;
 
-        din.header.stamp = ros::Time::now();
+        din.header.stamp = clock->now();
         int in = YP::YP_get_ad_value(15);
         for (int i = 0; i < dio_num_; i++)
         {
@@ -1200,7 +1207,7 @@ public:
 
       for (int i = 0; i < dio_num_; i++)
       {
-        if (dio_revert_[i] != ros::Time(0))
+        if (dio_revert_[i] != rclcpp::Time(0))
         {
           if (dio_revert_[i] < now)
           {
@@ -1213,6 +1220,7 @@ public:
       if (YP::YP_get_error_state())
         break;
 
+      #TODO
       ros::spinOnce();
       loop.sleep();
 
@@ -1221,29 +1229,29 @@ public:
       {
         if (WIFEXITED(status))
         {
-          ROS_ERROR("ypspur-coordinator exited");
+          RCLCPP_ERROR(this->get_error(), "ypspur-coordinator exited");
         }
         else
         {
           if (WIFSTOPPED(status))
           {
-            ROS_ERROR("ypspur-coordinator dead with signal %d",
+            RCLCPP_ERROR(this->get_error(), "ypspur-coordinator dead with signal %d",
                       WSTOPSIG(status));
           }
           else
           {
-            ROS_ERROR("ypspur-coordinator dead");
+            RCLCPP_ERROR(this->get_error(), "ypspur-coordinator dead");
           }
           updateDiagnostics(now, true);
         }
         break;
       }
     }
-    ROS_INFO("ypspur_ros main loop terminated");
+    RCLCPP_INFO("this->get_error(), ypspur_ros main loop terminated");
 
     if (YP::YP_get_error_state())
     {
-      ROS_ERROR("ypspur-coordinator is not active");
+      RCLCPP_ERROR(this->get_error(), "ypspur-coordinator is not active");
       return false;
     }
     return true;
@@ -1252,6 +1260,7 @@ public:
 
 int main(int argc, char* argv[])
 {
+  #TODO
   ros::init(argc, argv, "ypspur_ros");
   ros::NodeHandle nh;
 
@@ -1265,10 +1274,10 @@ int main(int argc, char* argv[])
   }
   catch (std::runtime_error& e)
   {
-    ROS_ERROR("%s", e.what());
+    RCLCPP_ERROR(this->get_logger(), "%s", e.what());
     ret = 1;
   }
-
-  ros::WallDuration(0.1).sleep();
+  #TODO wallduration
+  rclcpp::Duration(0.1).sleep();
   return ret;
 }
