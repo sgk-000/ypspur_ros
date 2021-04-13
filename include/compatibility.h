@@ -30,7 +30,7 @@
 #ifndef COMPATIBILITY_H
 #define COMPATIBILITY_H
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 
 #include <string>
 

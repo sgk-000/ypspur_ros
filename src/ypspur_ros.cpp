@@ -426,8 +426,6 @@ private:
 
 public:
   YpspurRosNode()
-    : nh_()
-    , pnh_("~")
     , tf_listener_(tf_buffer_)
     , z_axis_(0, 0, 1)
     , device_error_state_(0)
@@ -435,32 +433,30 @@ public:
     , device_error_state_time_(0)
   {
     compat::checkCompatMode();
-
-    pnh_.param("port", port_, std::string("/dev/ttyACM0"));
-    pnh_.param("ipc_key", key_, 28741);
-    pnh_.param("simulate", simulate_, false);
-    pnh_.param("simulate_control", simulate_control_, false);
+    this->declare_parameter<std::string>("port", port_,std::string("/dev/ttyACM0"));
+    this->declare_parameter<int>("ipc_key", key_, 28741);
+    this->declare_parameter<std::bool>("simulate", simulate_, false);
+    this->declare_parameter<std::bool>("simulate_control", simulate_control_,false);
     if (simulate_control_)
       simulate_ = true;
-    pnh_.param("ypspur_bin", ypspur_bin_, std::string("ypspur-coordinator"));
-    pnh_.param("param_file", param_file_, std::string(""));
-    pnh_.param("tf_time_offset", tf_time_offset_, 0.0);
-
+    this->declare_parameter<std::string>("ypspur_bin", ypspur_bin_, std::string("ypspur-coordinator"));
+    this->declare_parameter<std::string>("param_file", param_file_,std::string(""));
+    this->declare_parameter<double>("tf_time_offset", tf_time_offset_, 0.0);
     double cmd_vel_expire_s;
-    pnh_.param("cmd_vel_expire", cmd_vel_expire_s, -1.0);
+    this->declare_parameter<double>("cmd_vel_expire", cmd_vel_expire_s, -1.0);
     cmd_vel_expire_ = rclcpp::Duration(cmd_vel_expire_s);
 
     std::string ad_mask("");
     ads_.resize(ad_num_);
     for (int i = 0; i < ad_num_; i++)
     {
-      pnh_.param(std::string("ad") + std::to_string(i) + std::string("_enable"),
+      this->declare_parameter<std::bool>(std::string("ad") + std::to_string(i) + std::string("_enable"),
                  ads_[i].enable_, false);
-      pnh_.param(std::string("ad") + std::to_string(i) + std::string("_name"),
+      this->declare_parameter<std::string>(std::string("ad") + std::to_string(i) + std::string("_name"),
                  ads_[i].name_, std::string("ad") + std::to_string(i));
-      pnh_.param(std::string("ad") + std::to_string(i) + std::string("_gain"),
+      this->declare_parameter<double>(std::string("ad") + std::to_string(i) + std::string("_gain"),
                  ads_[i].gain_, 1.0);
-      pnh_.param(std::string("ad") + std::to_string(i) + std::string("_offset"),
+      this->declare_parameter<double>(std::string("ad") + std::to_string(i) + std::string("_offset"),
                  ads_[i].offset_, 0.0);
       ad_mask = (ads_[i].enable_ ? std::string("1") : std::string("0")) + ad_mask;
       pubs_["ad/" + ads_[i].name_] = compat::advertise<std_msgs::Float32>(
@@ -474,28 +470,28 @@ public:
     for (int i = 0; i < dio_num_; i++)
     {
       DioParams param;
-      pnh_.param(std::string("dio") + std::to_string(i) + std::string("_enable"),
+      this->declare_parameter<std::bool>(std::string("dio") + std::to_string(i) + std::string("_enable"),
                  param.enable_, false);
       if (param.enable_)
       {
-        pnh_.param(std::string("dio") + std::to_string(i) + std::string("_name"),
+        this->declare_parameter<std::string>(std::string("dio") + std::to_string(i) + std::string("_name"),
                    param.name_, std::string(std::string("dio") + std::to_string(i)));
-
-        pnh_.param(std::string("dio") + std::to_string(i) + std::string("_output"),
+        this->declare_parameter<std::bool>(std::string("dio") + std::to_string(i) + std::string("_output"),
                    param.output_, true);
-        pnh_.param(std::string("dio") + std::to_string(i) + std::string("_input"),
+        this->declare_parameter<std::bool>(std::string("dio") + std::to_string(i) + std::string("_input"),
                    param.input_, false);
 
         if (param.output_)
         {
           subs_[param.name_] = compat::subscribe<ypspur_ros::DigitalOutput>(
+            #TODO
               nh_, param.name_,
               pnh_, param.name_, 1,
               boost::bind(&YpspurRosNode::cbDigitalOutput, this, _1, i));
         }
 
         std::string output_default;
-        pnh_.param(std::string("dio") + std::to_string(i) + std::string("_default"),
+        this->declare_parameter<std::string>(std::string("dio") + std::to_string(i) + std::string("_default"),
                    output_default, std::string("HIGH_IMPEDANCE"));
         if (output_default.compare("HIGH_IMPEDANCE") == 0)
         {
@@ -531,13 +527,13 @@ public:
           pnh_, "digital_input", 2);
     }
 
-    pnh_.param("odom_id", frames_["odom"], std::string("odom"));
-    pnh_.param("base_link_id", frames_["base_link"], std::string("base_link"));
-    pnh_.param("origin_id", frames_["origin"], std::string(""));
-    pnh_.param("hz", params_["hz"], 200.0);
+    this->declare_parameter<std::string>("odom_id", frames_["odom"], std::string("odom"));
+    this->declare_parameter<std::string>("base_link_id", frames_["base_link"], std::string("base_link"));
+    this->declare_parameter<std::string>("origin_id", frames_["origin"], std::string(""));
+    this->declare_parameter<std::string>("hz", params_["hz"], 200.0);
 
     std::string mode_name;
-    pnh_.param("OdometryMode", mode_name, std::string("diff"));
+    this->declare_parameter<std:;string>("OdometryMode", mode_name, std::string("diff"));
     if (mode_name.compare("diff") == 0)
     {
       mode_ = DIFF;
@@ -561,23 +557,23 @@ public:
 
     int max_joint_id;
     bool separated_joint;
-    pnh_.param("max_joint_id", max_joint_id, 32);
-    pnh_.param("separated_joint_control", separated_joint, false);
+    this->declare_parameter<int>("max_joint_id", max_joint_id, 32);
+    this->declare_parameter<std::bool>("separated_joint_control", separated_joint, false);
     int num = 0;
     for (int i = 0; i < max_joint_id; i++)
     {
       std::string name;
       name = std::string("joint") + std::to_string(i);
-      if (pnh_.hasParam(name + std::string("_enable")))
+      if (this->has_parameter(name + std::string("_enable")))
       {
         bool en;
-        pnh_.param(name + std::string("_enable"), en, false);
+        this->declare_parameter<std::bool>(name + std::string("_enable"), en, false);
         if (en)
         {
           JointParams jp;
           jp.id_ = i;
-          pnh_.param(name + std::string("_name"), jp.name_, name);
-          pnh_.param(name + std::string("_accel"), jp.accel_, 3.14);
+          this->declare_parameter<std::string>(name + std::string("_name"), jp.name_, name);
+          this->declare_parameter<double>(name + std::string("_accel"), jp.accel_, 3.14);
           joint_name_to_num_[jp.name_] = num;
           joints_.push_back(jp);
           // printf("%s %d %d", jp.name_.c_str(), jp.id_, joint_name_to_num_[jp.name_]);
@@ -739,21 +735,19 @@ public:
     YP::YP_get_parameter(YP::YP_PARAM_MAX_W, &params_["angvel"]);
     YP::YP_get_parameter(YP::YP_PARAM_MAX_ACC_W, &params_["angacc"]);
 
-    if (!pnh_.hasParam("vel"))
+    if (!this->has_parameter("vel"))
       _RCLCPP_WARN(this->get_logger(), "default \"vel\" %0.3f used", (float)params_["vel"]);
-    if (!pnh_.hasParam("acc"))
+    if (!this->has_parameter("acc"))
       RCLCPP_WARN(this->get_logger(), "default \"acc\" %0.3f used", (float)params_["acc"]);
-    if (!pnh_.hasParam("angvel"))
+    if (!this->has_parameter("angvel"))
       RCLCPP_WARN(this->get_logger(), "default \"angvel\" %0.3f used", (float)params_["angvel"]);
-    if (!pnh_.hasParam("angacc"))
+    if (!this->has_parameter("angacc"))
       RCLCPP_WARN(this->get_logger(), "default \"angacc\" %0.3f used", (float)params_["angacc"]);
 
-    #TODO pnh
-    #TODO param
-    pnh_.param("vel", params_["vel"], params_["vel"]);
-    pnh_.param("acc", params_["acc"], params_["acc"]);
-    pnh_.param("angvel", params_["angvel"], params_["angvel"]);
-    pnh_.param("angacc", params_["angacc"], params_["angacc"]);
+    this->declare_parameter<double>("vel", params_["vel"], params_["vel"]);
+    this->declare_parameter<double>("acc", params_["acc"], params_["acc"]);
+    this->declare_parameter<double>("angvel", params_["angvel"], params_["angvel"]);
+    this->declare_parameter<double>("angacc", params_["angacc"], params_["angacc"]);
 
     YP::YPSpur_set_vel(params_["vel"]);
     YP::YPSpur_set_accel(params_["acc"]);
